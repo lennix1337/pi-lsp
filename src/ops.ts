@@ -1,7 +1,7 @@
 // The lsp tool's actions: find a symbol's position by name, ask the server, and turn answers into short text
 // with paths and line text. Rename writes the server's edits to disk itself, all files or none.
-import { readFileSync, writeFileSync } from 'node:fs';
-import { relative } from 'node:path';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Diagnostic, Location, Position, Range } from './connection.ts';
 import type { Session } from './session.ts';
@@ -150,6 +150,38 @@ export function applyWorkspaceEdit(files: Map<string, TextEdit[]>): Array<{ path
 export function formatRename(symbol: string, newName: string, applied: Array<{ path: string; edits: number; lines: number[] }>, cwd: string) {
   const total = applied.reduce((n, f) => n + f.edits, 0);
   return `Renamed ${symbol} → ${newName}: ${total} edit(s) in ${applied.length} file(s).\n${applied.map(f => `${shown(f.path, cwd)}: line(s) ${f.lines.join(', ')}`).join('\n')}`;
+}
+
+const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'build', 'out', 'bin', 'obj', 'coverage']);
+
+// Where the old name is still written after a rename (other symbols, comments, strings), so the agent need not
+// search for it again. Source files only, whole words, at most `maxFiles` files read.
+export function leftovers(root: string, name: string, sources: RegExp, maxFiles = 5000): Array<{ path: string; line: number; text: string }> {
+  const hits: Array<{ path: string; line: number; text: string }> = [];
+  const word = new RegExp(`(?<![\\p{L}\\p{N}_$])${name.replace(/[$.*+?^()[\]{}|\\]/g, '\\$&')}(?![\\p{L}\\p{N}_$])`, 'u');
+  let files = 0;
+  const walk = (dir: string) => {
+    let entries; try { entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)); } catch { return; }
+    for (const e of entries) {
+      if (files >= maxFiles) return;
+      const path = join(dir, e.name);
+      if (e.isDirectory()) { if (!e.name.startsWith('.') && !SKIPPED_DIRS.has(e.name)) walk(path); continue; }
+      if (!sources.test(e.name) || /\.d\.[mc]?ts$/i.test(e.name)) continue;
+      files++;
+      let text; try { text = readFileSync(path, 'utf8'); } catch { continue; }
+      if (!word.test(text)) continue;
+      text.split(/\r?\n/).forEach((l, i) => { if (word.test(l)) hits.push({ path, line: i + 1, text: l.trim() }); });
+    }
+  };
+  walk(root);
+  return hits;
+}
+
+export function formatLeftovers(name: string, hits: Array<{ path: string; line: number; text: string }>, cwd: string, max = 40): string {
+  if (!hits.length) return `No source file still contains ${name}.`;
+  const out = hits.slice(0, max).map(h => `${shown(h.path, cwd)}:${h.line}  ${h.text.slice(0, 160)}`);
+  if (hits.length > max) out.push(`… ${hits.length - max} more`);
+  return `Text still spelled ${name} (not renamed: other symbols, comments, strings):\n${out.join('\n')}`;
 }
 
 export function formatSymbols(result: any[], cwd: string, max = MAX_LISTED): string {

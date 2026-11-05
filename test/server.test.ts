@@ -54,6 +54,7 @@ for (const [name, ts5] of [['TypeScript 7 native (bundled)', false], ['typescrip
 
     const renamed = await h.call(dir, { action: 'rename', path: 'src/cart.ts', symbol: 'total', newName: 'subtotal' });
     assert.match(renamed, /Renamed total → subtotal: 3 edit\(s\) in 2 file\(s\)/);
+    assert.match(renamed, /still spelled total[^\n]*\nsrc\/invoice\.ts:2 .*\nsrc\/use\.ts:3 .*\nsrc\/use\.ts:4 .*\nsrc\/use\.ts:5 .*i\.total\(\)/);
     const use = readFileSync(join(dir, 'src/use.ts'), 'utf8');
     assert.match(use, /c\.subtotal\(\) \+ i\.total\(\)/);
     assert.match(use, /label = 'total'/);

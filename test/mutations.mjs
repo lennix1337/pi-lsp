@@ -23,6 +23,9 @@ const cases = [
   ['prewarm-load', 'src/session.ts', "await session.connection.request('textDocument/documentSymbol'", "void ('textDocument/documentSymbol'", 'warmed-up', 'server'],
   ['warmup-project-only', 'src/servers.ts', "['tsconfig.json', 'jsconfig.json'].some", "['tsconfig.json', 'jsconfig.json', 'package.json'].some", 'package.json alone', 'warmup'],
   ['warmup-no-declarations', 'src/servers.ts', "!/\\.d\\.[mc]?ts$/i.test(n) && ", '', 'src first', 'warmup'],
+  ['rename-leftovers', 'src/index.ts', '\\n${formatLeftovers(String(input.symbol), left, cwd)}', '', 'references, rename', 'server'],
+  ['leftovers-whole-word', 'src/ops.ts', '(?<![\\\\p{L}\\\\p{N}_$])', '', 'still spelled', 'ops'],
+  ['leftovers-skip-deps', 'src/ops.ts', '!SKIPPED_DIRS.has(e.name)', 'true', 'still spelled', 'ops'],
 ];
 let killed = 0;
 let failed = false;

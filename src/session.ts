@@ -6,7 +6,7 @@ import { Connection, type Diagnostic, uriKey } from './connection.ts';
 import { type ServerSpec, serverFor } from './servers.ts';
 
 const IDLE_MS = 10 * 60_000;
-const SOURCES: Record<ServerSpec['kind'], RegExp> = { typescript: /\.[cm]?[jt]sx?$/i, csharp: /\.cs$/i };
+export const SOURCES: Record<ServerSpec['kind'], RegExp> = { typescript: /\.[cm]?[jt]sx?$/i, csharp: /\.cs$/i };
 
 interface OpenDoc { version: number; mtimeMs: number; size: number }
 
