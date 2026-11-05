@@ -18,6 +18,8 @@ const cases = [
   ['source-only', 'src/session.ts', 'if (type === 1 && SOURCES[this.spec.kind].test(path))', 'if (type === 1)', 'flush opens source files', 'session'],
   ['changed-event', 'src/session.ts', "if (events.length) this.connection.notify('workspace/didChangeWatchedFiles'", "if (false) this.connection.notify('workspace/didChangeWatchedFiles'", 'flush opens source files', 'session'],
   ['uri-key', 'src/connection.ts', "return process.platform === 'win32' ? path.toLowerCase() : path;", 'return uri;', 'uriKey spells', 'ops'],
+  ['comment-skip', 'src/ops.ts', 'line === undefined ? (code.length ? code : hits)', 'line === undefined ? hits', 'only appears in a comment', 'ops'],
+  ['comment-quotes', 'src/ops.ts', "else if (c === '\"' || c === \"'\" || c === '`') quote = c;", 'else if (false) quote = c;', 'only appears in a comment', 'ops'],
 ];
 let killed = 0;
 let failed = false;

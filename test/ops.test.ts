@@ -19,6 +19,15 @@ test('locate finds the symbol as a whole word, on the requested line', () => {
   assert.deepEqual(locate('a.$x = $x;', '$x').position, { line: 0, character: 2 });
 });
 
+test('without a line, locate skips the symbol where it only appears in a comment', () => {
+  const text = '// Cart total: sum.\n/* total\n * total */\nclass Cart {\n  total(): number { return 1; } // total\n}\n';
+  assert.deepEqual(locate(text, 'total').position, { line: 4, character: 2 });
+  assert.equal(locate(text, 'total').line, 5);
+  assert.deepEqual(locate(text, 'total', 1).position, { line: 0, character: 8 });
+  assert.deepEqual(locate('// only total here\n', 'total').position, { line: 0, character: 8 });
+  assert.deepEqual(locate('// total\nconst url = "http://x"; total();\n', 'total').position, { line: 1, character: 24 });
+});
+
 test('offsetOf counts UTF-16 units per line and refuses positions past the end', () => {
   const text = 'ação\r\nx = 1\n';
   assert.equal(offsetOf(text, { line: 1, character: 2 }), 8);

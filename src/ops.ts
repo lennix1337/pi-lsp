@@ -13,7 +13,22 @@ export class ToolError extends Error {}
 
 export interface Located { position: Position; line: number; occurrences: number; lines: number[] }
 
-// The position of `symbol` in text: on `line` (1-based) when given, else its first occurrence as a whole word.
+// Whether column `at` of a line sits in a comment: after a `//` outside quotes, or on a block-comment line.
+function inComment(content: string, at: number): boolean {
+  const head = content.trimStart();
+  if (head.startsWith('/*') || head.startsWith('*')) return true;
+  let quote = '';
+  for (let i = 0; i < at; i++) {
+    const c = content[i];
+    if (quote) { if (c === '\\') i++; else if (c === quote) quote = ''; }
+    else if (c === '"' || c === "'" || c === '`') quote = c;
+    else if (c === '/' && content[i + 1] === '/') return true;
+  }
+  return false;
+}
+
+// The position of `symbol` in text: on `line` (1-based) when given, else its first occurrence as a whole word
+// in code (a comment mentioning the name gives the server nothing to rename).
 export function locate(text: string, symbol: string, line?: number, occurrence = 1): Located {
   if (!symbol) throw new ToolError('symbol is required: the name to look up, as written in the file.');
   const lines = text.split('\n');
@@ -26,7 +41,8 @@ export function locate(text: string, symbol: string, line?: number, occurrence =
   });
   const hitLines = [...new Set(hits.map(h => h.line + 1))];
   if (!hits.length) throw new ToolError(`"${symbol}" does not occur as a whole word in this file.`);
-  const pool = line === undefined ? hits : hits.filter(h => h.line === line - 1);
+  const code = hits.filter(h => !inComment(lines[h.line], h.character));
+  const pool = line === undefined ? (code.length ? code : hits) : hits.filter(h => h.line === line - 1);
   if (!pool.length) throw new ToolError(`"${symbol}" is not on line ${line}; it occurs on line(s) ${hitLines.slice(0, 20).join(', ')}.`);
   const pick = pool[Math.min(Math.max(occurrence, 1), pool.length) - 1];
   return { position: pick, line: pick.line + 1, occurrences: hits.length, lines: hitLines };
