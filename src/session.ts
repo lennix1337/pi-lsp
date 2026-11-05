@@ -131,6 +131,15 @@ export class Pool {
     return session;
   }
 
+  // Start the server and let it load the project while the model is still thinking: the first answer of a
+  // cold tsserver waits seconds for the project to load, later ones milliseconds.
+  async prewarm(file: string, timeoutMs = 60_000) {
+    const session = await this.forFile(file);
+    const uri = session.sync(file);
+    await session.connection.request('textDocument/documentSymbol', { textDocument: { uri } }, timeoutMs);
+    return session;
+  }
+
   // A file another tool changed: every live server learns of it before its next answer.
   async fileChanged(path: string) {
     for (const pending of this.sessions.values()) { const s = await pending.catch(() => null); if (s?.alive) s.markChanged(path); }

@@ -8,7 +8,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import extension from '../src/index.ts';
-import { findOnPath } from '../src/servers.ts';
+import { findOnPath, warmupFile } from '../src/servers.ts';
+import { Pool } from '../src/session.ts';
+import { references } from '../src/ops.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -94,4 +96,22 @@ test('errors explain what to pass next', async () => {
   await assert.rejects(h.call(dir, { action: 'references', path: 'src/cart.ts', symbol: 'total', line: 1 }), /not on line 1; it occurs on line\(s\) 3/);
   await assert.rejects(h.call(dir, { action: 'rename', path: 'src/cart.ts', symbol: 'total' }), /newName is required/);
   await assert.rejects(h.call(dir, { action: 'references', path: 'notes.md', symbol: 'x' }), /No language server for \.md/);
+});
+
+test('a warmed-up server answers the first question without the project-load wait a cold one has', { timeout: 120_000 }, async () => {
+  const time = async (warm: boolean) => {
+    const dir = project(true); dirs.push(dir);
+    const file = join(dir, 'src', 'cart.ts');
+    const pool = new Pool();
+    try {
+      if (warm) assert.equal(warmupFile(dir), file), await pool.prewarm(file);
+      const session = await pool.forFile(file);
+      const started = Date.now();
+      const found = await references(session, session.sync(file), { line: 2, character: 2 }, 60_000);
+      assert.equal(found.length, 3);
+      return Date.now() - started;
+    } finally { await pool.closeAll(); }
+  };
+  const cold = await time(false), warm = await time(true);
+  assert.ok(warm * 3 < cold, `warm ${warm} ms vs cold ${cold} ms`);
 });

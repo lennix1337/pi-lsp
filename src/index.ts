@@ -5,6 +5,7 @@ import { type ExtensionAPI, withFileMutationQueue } from '@earendil-works/pi-cod
 import { Type } from 'typebox';
 import { LspError, uriKey } from './connection.ts';
 import { ToolError, applyWorkspaceEdit, definition, formatDiagnostics, formatLocations, formatRename, formatSymbols, hover, locate, references, textEdits } from './ops.ts';
+import { warmupFile } from './servers.ts';
 import { Pool } from './session.ts';
 
 const REQUEST_MS = 60_000;
@@ -36,6 +37,11 @@ export default function extension(pi: ExtensionAPI) {
     if ((event.toolName === 'edit' || event.toolName === 'write') && typeof event.input?.path === 'string' && !event.isError) {
       void pool.fileChanged(resolvePath(event.input.path, ctx?.cwd || process.cwd()));
     }
+  });
+  pi.on('session_start', (_event: any, ctx: any) => {
+    if (process.env.PI_LSP_PREWARM === '0') return;
+    const file = warmupFile(ctx?.cwd || process.cwd());
+    if (file) void pool.prewarm(file).catch(() => undefined);
   });
   pi.on('session_shutdown', () => pool.closeAll());
 

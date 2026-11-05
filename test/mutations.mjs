@@ -20,6 +20,9 @@ const cases = [
   ['uri-key', 'src/connection.ts', "return process.platform === 'win32' ? path.toLowerCase() : path;", 'return uri;', 'uriKey spells', 'ops'],
   ['comment-skip', 'src/ops.ts', 'line === undefined ? (code.length ? code : hits)', 'line === undefined ? hits', 'only appears in a comment', 'ops'],
   ['comment-quotes', 'src/ops.ts', "else if (c === '\"' || c === \"'\" || c === '`') quote = c;", 'else if (false) quote = c;', 'only appears in a comment', 'ops'],
+  ['prewarm-load', 'src/session.ts', "await session.connection.request('textDocument/documentSymbol'", "void ('textDocument/documentSymbol'", 'warmed-up', 'server'],
+  ['warmup-project-only', 'src/servers.ts', "['tsconfig.json', 'jsconfig.json'].some", "['tsconfig.json', 'jsconfig.json', 'package.json'].some", 'package.json alone', 'warmup'],
+  ['warmup-no-declarations', 'src/servers.ts', "!/\\.d\\.[mc]?ts$/i.test(n) && ", '', 'src first', 'warmup'],
 ];
 let killed = 0;
 let failed = false;
