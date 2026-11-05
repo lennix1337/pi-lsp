@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { ToolError, applyTextEdits, applyWorkspaceEdit, formatDiagnostics, locate, offsetOf, textEdits } from '../src/ops.ts';
+import { dirname, join, relative } from 'node:path';
+import { ToolError, applyTextEdits, applyWorkspaceEdit, formatDiagnostics, formatLeftovers, leftovers, locate, offsetOf, textEdits } from '../src/ops.ts';
 
 const r = (l1: number, c1: number, l2: number, c2: number) => ({ start: { line: l1, character: c1 }, end: { line: l2, character: c2 } });
 
@@ -80,4 +80,19 @@ test('uriKey spells one file the same way whatever the server encodes', async ()
   assert.equal(uriKey(plain.replace('a%20b', 'x/../a%20b')), uriKey(plain));
   assert.equal(uriKey(plain.replace('.ts', '%2Ets')), uriKey(plain));
   if (process.platform === 'win32') assert.equal(uriKey(plain.replace(/^file:\/\/\/([A-Za-z]):/, (_, d) => `file:///${d.toLowerCase()}%3A`)), uriKey(plain));
+});
+
+test('after a rename, the text still spelled with the old name is listed, whole words only, outside node_modules', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pi-lsp-left-'));
+  const put = (f: string, t: string) => { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), t); };
+  put('src/use.ts', "// total of the cart\nexport const s = c.subtotal();\nexport const label = 'total';\n");
+  put('src/invoice.ts', 'class Invoice { total() { return 0; } }\n');
+  put('node_modules/x/index.ts', 'export const total = 1;\n');
+  put('notes.md', 'total\n');
+  try {
+    const hits = leftovers(root, 'total', /\.[cm]?[jt]sx?$/i);
+    assert.deepEqual(hits.map(h => `${relative(root, h.path).replaceAll('\\', '/')}:${h.line}`), ['src/invoice.ts:1', 'src/use.ts:1', 'src/use.ts:3']);
+    assert.match(formatLeftovers('total', hits, root), /still spelled total \(not renamed: other symbols, comments, strings\):\nsrc\/invoice\.ts:1 {2}class Invoice/);
+    assert.match(formatLeftovers('total', [], root), /No source file still contains total/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

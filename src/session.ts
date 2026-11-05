@@ -6,7 +6,7 @@ import { Connection, type Diagnostic, uriKey } from './connection.ts';
 import { type ServerSpec, serverFor } from './servers.ts';
 
 const IDLE_MS = 10 * 60_000;
-const SOURCES: Record<ServerSpec['kind'], RegExp> = { typescript: /\.[cm]?[jt]sx?$/i, csharp: /\.cs$/i };
+export const SOURCES: Record<ServerSpec['kind'], RegExp> = { typescript: /\.[cm]?[jt]sx?$/i, csharp: /\.cs$/i };
 
 interface OpenDoc { version: number; mtimeMs: number; size: number }
 
@@ -128,6 +128,15 @@ export class Pool {
     pending.catch(() => this.sessions.delete(spec.key));
     const session = await pending;
     session.touch(() => this.drop(spec.key));
+    return session;
+  }
+
+  // Start the server and let it load the project while the model is still thinking: the first answer of a
+  // cold tsserver waits seconds for the project to load, later ones milliseconds.
+  async prewarm(file: string, timeoutMs = 60_000) {
+    const session = await this.forFile(file);
+    const uri = session.sync(file);
+    await session.connection.request('textDocument/documentSymbol', { textDocument: { uri } }, timeoutMs);
     return session;
   }
 

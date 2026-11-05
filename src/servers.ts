@@ -12,6 +12,18 @@ export interface ServerSpec { key: string; kind: 'typescript' | 'csharp'; root: 
 const TS_EXT = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']);
 const require = createRequire(import.meta.url);
 
+// A file whose opening makes the TypeScript server load the project cwd belongs to, or null when cwd is not
+// itself a TypeScript/JavaScript project (a home folder with a package.json is not one).
+export function warmupFile(cwd: string): string | null {
+  if (!['tsconfig.json', 'jsconfig.json'].some(n => existsSync(join(cwd, n)))) return null;
+  for (const dir of [join(cwd, 'src'), cwd]) {
+    let names: string[]; try { names = readdirSync(dir).sort(); } catch { continue; }
+    const hit = names.find(n => TS_EXT.has(extname(n).toLowerCase()) && !/\.d\.[mc]?ts$/i.test(n) && !/\.config\./i.test(n));
+    if (hit) return join(dir, hit);
+  }
+  return null;
+}
+
 function upwards(start: string, found: (dir: string) => boolean): string | null {
   for (let dir = start; ; dir = dirname(dir)) {
     if (found(dir)) return dir;

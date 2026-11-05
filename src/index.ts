@@ -4,8 +4,9 @@ import { pathToFileURL } from 'node:url';
 import { type ExtensionAPI, withFileMutationQueue } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { LspError, uriKey } from './connection.ts';
-import { ToolError, applyWorkspaceEdit, definition, formatDiagnostics, formatLocations, formatRename, formatSymbols, hover, locate, references, textEdits } from './ops.ts';
-import { Pool } from './session.ts';
+import { ToolError, applyWorkspaceEdit, definition, formatDiagnostics, formatLeftovers, formatLocations, formatRename, formatSymbols, hover, leftovers, locate, references, textEdits } from './ops.ts';
+import { warmupFile } from './servers.ts';
+import { Pool, SOURCES } from './session.ts';
 
 const REQUEST_MS = 60_000;
 
@@ -36,6 +37,11 @@ export default function extension(pi: ExtensionAPI) {
     if ((event.toolName === 'edit' || event.toolName === 'write') && typeof event.input?.path === 'string' && !event.isError) {
       void pool.fileChanged(resolvePath(event.input.path, ctx?.cwd || process.cwd()));
     }
+  });
+  pi.on('session_start', (_event: any, ctx: any) => {
+    if (process.env.PI_LSP_PREWARM === '0') return;
+    const file = warmupFile(ctx?.cwd || process.cwd());
+    if (file) void pool.prewarm(file).catch(() => undefined);
   });
   pi.on('session_shutdown', () => pool.closeAll());
 
@@ -92,7 +98,8 @@ export default function extension(pi: ExtensionAPI) {
           if (!files.size) throw new ToolError(`The server cannot rename ${at} (no edits returned): check that the line points at the symbol itself.`);
           const applied = await withFiles([...files.keys()], async () => applyWorkspaceEdit(files));
           for (const f of applied) await pool.fileChanged(f.path);
-          return text(`${head} ${formatRename(String(input.symbol), newName, applied, cwd)}`);
+          const left = leftovers(session.spec.root, String(input.symbol), SOURCES[session.spec.kind]);
+          return text(`${head} ${formatRename(String(input.symbol), newName, applied, cwd)}\n${formatLeftovers(String(input.symbol), left, cwd)}`);
         }
         throw new ToolError(`Unknown action ${input.action}.`);
       } catch (e) {
