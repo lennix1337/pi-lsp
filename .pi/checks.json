@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "checks": {
+    "verify": { "description": "typecheck and tests against real servers", "argv": ["npm", "run", "verify"], "timeoutMs": 300000, "onEdit": true, "watch": ["src", "test"] },
+    "mutations": { "description": "guard mutants are killed", "argv": ["node", "test/mutations.mjs"], "timeoutMs": 1500000 }
+  }
+}
