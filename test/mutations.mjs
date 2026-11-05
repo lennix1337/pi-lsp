@@ -17,7 +17,7 @@ const cases = [
   ['open-created', 'src/session.ts', 'if (type === 1 && SOURCES[this.spec.kind].test(path))', 'if (false)', 'flush opens source files', 'session'],
   ['source-only', 'src/session.ts', 'if (type === 1 && SOURCES[this.spec.kind].test(path))', 'if (type === 1)', 'flush opens source files', 'session'],
   ['changed-event', 'src/session.ts', "if (events.length) this.connection.notify('workspace/didChangeWatchedFiles'", "if (false) this.connection.notify('workspace/didChangeWatchedFiles'", 'flush opens source files', 'session'],
-  ['uri-key', 'src/connection.ts', "return process.platform === 'win32' ? path.toLowerCase() : path;", 'return uri;', 'typescript-language-server', 'server'],
+  ['uri-key', 'src/connection.ts', "return process.platform === 'win32' ? path.toLowerCase() : path;", 'return uri;', 'uriKey spells', 'ops'],
 ];
 let killed = 0;
 let failed = false;

@@ -62,3 +62,13 @@ test('textEdits merges changes and documentChanges, and refuses file operations'
   assert.equal([...files.values()][0].length, 2);
   assert.throws(() => textEdits({ documentChanges: [{ kind: 'rename', oldUri: 'file:///a.ts', newUri: 'file:///b.ts' }] }), /wants to rename a file/);
 });
+
+test('uriKey spells one file the same way whatever the server encodes', async () => {
+  const { uriKey } = await import('../src/connection.ts');
+  const { pathToFileURL } = await import('node:url');
+  const file = join(tmpdir(), 'pi-lsp-key', 'a b.ts');
+  const plain = pathToFileURL(file).href;
+  assert.equal(uriKey(plain.replace('a%20b', 'x/../a%20b')), uriKey(plain));
+  assert.equal(uriKey(plain.replace('.ts', '%2Ets')), uriKey(plain));
+  if (process.platform === 'win32') assert.equal(uriKey(plain.replace(/^file:\/\/\/([A-Za-z]):/, (_, d) => `file:///${d.toLowerCase()}%3A`)), uriKey(plain));
+});
