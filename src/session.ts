@@ -6,6 +6,7 @@ import { Connection, type Diagnostic, uriKey } from './connection.ts';
 import { type ServerSpec, serverFor } from './servers.ts';
 
 const IDLE_MS = 10 * 60_000;
+const SOURCES: Record<ServerSpec['kind'], RegExp> = { typescript: /\.[cm]?[jt]sx?$/i, csharp: /\.cs$/i };
 
 interface OpenDoc { version: number; mtimeMs: number; size: number }
 
@@ -80,6 +81,9 @@ export class Session {
       const type = this.watchedChange(path);
       events.push({ uri, type });
       if (type === 3 && this.open.delete(path)) this.connection.notify('textDocument/didClose', { textDocument: { uri } });
+      // typescript-language-server drops watched-file events from a client without dynamic registration and
+      // leaves new files to tsserver's own watcher, which on Linux can lag the next request: open them instead.
+      if (type === 1 && SOURCES[this.spec.kind].test(path)) { try { this.sync(path); } catch { /* gone again */ } }
     }
     this.changed.clear();
     for (const path of this.open.keys()) { try { this.sync(path); } catch { /* deleted */ } }
@@ -88,7 +92,8 @@ export class Session {
 
   // 1 created (after this server started, so it cannot know it), 2 changed, 3 deleted.
   private watchedChange(path: string): number {
-    try { return statSync(path).birthtimeMs >= this.startedAt ? 1 : 2; } catch { return 3; }
+    // A filesystem without birth times reports 0; the change time is then the closest bound.
+    try { const s = statSync(path); return (s.birthtimeMs || s.ctimeMs) >= this.startedAt ? 1 : 2; } catch { return 3; }
   }
 
   async diagnostics(path: string, timeoutMs: number, pushesBefore: number): Promise<Diagnostic[]> {
