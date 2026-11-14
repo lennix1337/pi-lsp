@@ -27,7 +27,12 @@ test('flush opens source files created by other tools and leaves other files clo
     const watched = sent.find(m => m.method === 'workspace/didChangeWatchedFiles');
     assert.deepEqual(watched?.params.changes.map((c: any) => c.type), [1, 1]);
   } finally {
-    (session.connection as any).child.kill();
+    // The folder is the child's working directory, which Windows keeps locked until the process is gone:
+    // removing it earlier fails with EPERM, and that error would replace an assertion that failed above.
+    const child = (session.connection as any).child;
+    const gone = new Promise(resolve => child.once('exit', resolve));
+    child.kill();
+    await gone;
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });
