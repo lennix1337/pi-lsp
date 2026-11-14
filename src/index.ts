@@ -30,9 +30,10 @@ function withFiles<T>(paths: string[], fn: () => Promise<T>): Promise<T> {
   return [...paths].sort().reduceRight<() => Promise<T>>((inner, path) => () => withFileMutationQueue(path, inner), fn)();
 }
 
-export default function extension(pi: ExtensionAPI) {
-  const pool = new Pool();
+export default function extension(pi: ExtensionAPI) { register(pi, new Pool()); }
 
+// The pool is a parameter so a test can run the tool with its own limits.
+export function register(pi: ExtensionAPI, pool: Pool) {
   pi.on('tool_result', (event: any, ctx: any) => {
     if ((event.toolName === 'edit' || event.toolName === 'write') && typeof event.input?.path === 'string' && !event.isError) {
       void pool.fileChanged(resolvePath(event.input.path, ctx?.cwd || process.cwd()));
@@ -67,7 +68,7 @@ export default function extension(pi: ExtensionAPI) {
         if (signal?.aborted) throw new ToolError('Operation aborted');
         const pushesBefore = session.connection.pushes.get(uriKey(pathToFileURL(path).href)) ?? 0;
         session.flush();
-        const head = `[${session.spec.note}]`;
+        const head = `[${session.spec.note}]${session.tracksExternalChanges ? '' : ` This project has over ${session.maxTracked} source files: changes made outside edit and write are not tracked.`}`;
         if (input.action === 'diagnostics') return text(`${head}\n${formatDiagnostics(path, await session.diagnostics(path, REQUEST_MS, pushesBefore), cwd)}`);
         if (input.action === 'symbols') {
           if (!input.query) throw new ToolError('query is required for symbols.');

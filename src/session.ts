@@ -1,14 +1,39 @@
 // One running language server per project root, with the documents it has open kept in step with the disk.
-// Files changed by other tools are announced before the next request, so answers never come from stale text.
+// Source files created, changed or deleted on disk, by a tool or by any other program, are announced before
+// the next request, so answers never come from stale text.
 import { statSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Connection, type Diagnostic, uriKey } from './connection.ts';
+import { MAX_SOURCE_FILES, filesUnder } from './ops.ts';
 import { type ServerSpec, serverFor } from './servers.ts';
 
 const IDLE_MS = 10 * 60_000;
 export const SOURCES: Record<ServerSpec['kind'], RegExp> = { typescript: /\.[cm]?[jt]sx?$/i, csharp: /\.cs$/i };
 
 interface OpenDoc { version: number; mtimeMs: number; size: number }
+
+// The root's source files as "mtime:size" by path, outside the folders a walk skips. Null when there are more
+// than maxFiles: a partial list would pass for the whole project.
+export function snapshot(root: string, sources: RegExp, maxFiles: number): Map<string, string> | null {
+  const files = new Map<string, string>();
+  for (const path of filesUnder(root)) {
+    if (!sources.test(path)) continue;
+    // Listed but gone by now, or a link to nothing: not a file of the project.
+    let stat; try { stat = statSync(path); } catch { continue; }
+    if (files.size >= maxFiles) return null;
+    files.set(path, `${stat.mtimeMs}:${stat.size}`);
+  }
+  return files;
+}
+
+// What happened to each file between two snapshots: 1 created, 2 changed, 3 deleted. Unchanged files are absent.
+export function changes(before: Map<string, string>, after: Map<string, string>): Map<string, number> {
+  const found = new Map<string, number>();
+  for (const [path, stamp] of after) { const old = before.get(path); if (old !== stamp) found.set(path, old === undefined ? 1 : 2); }
+  for (const path of before.keys()) if (!after.has(path)) found.set(path, 3);
+  return found;
+}
 
 export class Session {
   readonly spec: ServerSpec;
@@ -19,9 +44,14 @@ export class Session {
   private readonly fresh = new Set<string>();
   private idle: NodeJS.Timeout | null = null;
   private readonly startedAt = Date.now();
+  // The root's source files as the server last heard of them; null when there are too many to track.
+  private known: Map<string, string> | null;
 
-  constructor(spec: ServerSpec) {
+  constructor(spec: ServerSpec, readonly maxTracked = MAX_SOURCE_FILES) {
     this.spec = spec;
+    // Taken before the server starts, not at the first request: a file that changes in between (the warm-up
+    // starts the server with the session) is announced like any other.
+    this.known = snapshot(spec.root, SOURCES[spec.kind], maxTracked);
     this.connection = new Connection(spec.command, spec.args, spec.root);
   }
 
@@ -51,11 +81,16 @@ export class Session {
     this.idle.unref();
   }
 
-  // Another tool wrote this file; tell the server before it answers again.
-  markChanged(path: string) { this.changed.add(path); }
+  // False when the root has more source files than the limit: only what edit and write report reaches the server.
+  get tracksExternalChanges() { return this.known !== null; }
+
+  // Another tool wrote this file; tell the server before it answers again. One spelling per file, so a
+  // change a tool reported and the scan also found is one change.
+  markChanged(path: string) { this.changed.add(resolve(path)); }
 
   // Open the file, or send its new text when it changed on disk since the server last saw it.
   sync(path: string): string {
+    path = resolve(path);
     const uri = pathToFileURL(path).href;
     const stat = statSync(path);
     const doc = this.open.get(path);
@@ -72,13 +107,14 @@ export class Session {
     return uri;
   }
 
-  // Flush changes made by other tools: a watched-file event for each, new text for open documents, and a
-  // close for an open document that was deleted.
+  // Flush changes made by other tools and other programs: a watched-file event for each, new text for open
+  // documents, and a close for an open document that was deleted.
   flush() {
     const events: Array<{ uri: string; type: number }> = [];
-    for (const path of this.changed) {
+    const found = this.scan();
+    for (const path of new Set([...this.changed, ...found.keys()])) {
       const uri = pathToFileURL(path).href;
-      const type = this.watchedChange(path);
+      const type = found.get(path) ?? this.watchedChange(path);
       events.push({ uri, type });
       if (type === 3 && this.open.delete(path)) this.connection.notify('textDocument/didClose', { textDocument: { uri } });
       // typescript-language-server drops watched-file events from a client without dynamic registration and
@@ -90,7 +126,18 @@ export class Session {
     if (events.length) this.connection.notify('workspace/didChangeWatchedFiles', { changes: events });
   }
 
-  // 1 created (after this server started, so it cannot know it), 2 changed, 3 deleted.
+  // What happened to the root's source files since the last call. git, a formatter, a generator or another
+  // session leave no tool result, so the disk is the only place that tells.
+  private scan(): Map<string, number> {
+    if (!this.known) return new Map();
+    const now = snapshot(this.spec.root, SOURCES[this.spec.kind], this.maxTracked);
+    const found = now ? changes(this.known, now) : new Map<string, number>();
+    this.known = now;
+    return found;
+  }
+
+  // For a file the scan does not cover (not a source file, or a root over the limit): 1 created (after this
+  // server started, so it cannot know it), 2 changed, 3 deleted.
   private watchedChange(path: string): number {
     // A filesystem without birth times reports 0; the change time is then the closest bound.
     try { const s = statSync(path); return (s.birthtimeMs || s.ctimeMs) >= this.startedAt ? 1 : 2; } catch { return 3; }
@@ -113,7 +160,7 @@ export class Session {
 
 export class Pool {
   private readonly sessions = new Map<string, Promise<Session>>();
-  constructor(private readonly startTimeoutMs = 60_000) {}
+  constructor(private readonly startTimeoutMs = 60_000, private readonly maxTracked = MAX_SOURCE_FILES) {}
 
   async forFile(path: string): Promise<Session> {
     const spec = await serverFor(path);
@@ -123,7 +170,7 @@ export class Pool {
       if (session?.alive) { session.touch(() => this.drop(spec.key)); return session; }
       this.sessions.delete(spec.key);
     }
-    pending = (async () => { const s = new Session(spec); await s.start(this.startTimeoutMs); return s; })();
+    pending = (async () => { const s = new Session(spec, this.maxTracked); await s.start(this.startTimeoutMs); return s; })();
     this.sessions.set(spec.key, pending);
     pending.catch(() => this.sessions.delete(spec.key));
     const session = await pending;
