@@ -154,26 +154,34 @@ export function formatRename(symbol: string, newName: string, applied: Array<{ p
 
 const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'build', 'out', 'bin', 'obj', 'coverage']);
 
+// The most source files of one project that a walk reads or a session tracks.
+export const MAX_SOURCE_FILES = 5000;
+
+// Every file under dir in name order, outside hidden, dependency and build folders.
+export function* filesUnder(dir: string): Generator<string> {
+  // A folder that cannot be listed (removed meanwhile, no permission) has no files to give.
+  let entries; try { entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)); } catch { return; }
+  for (const e of entries) {
+    const path = join(dir, e.name);
+    if (!e.isDirectory()) yield path;
+    else if (!e.name.startsWith('.') && !SKIPPED_DIRS.has(e.name)) yield* filesUnder(path);
+  }
+}
+
 // Where the old name is still written after a rename (other symbols, comments, strings), so the agent need not
 // search for it again. Source files only, whole words, at most `maxFiles` files read.
-export function leftovers(root: string, name: string, sources: RegExp, maxFiles = 5000): Array<{ path: string; line: number; text: string }> {
+export function leftovers(root: string, name: string, sources: RegExp, maxFiles = MAX_SOURCE_FILES): Array<{ path: string; line: number; text: string }> {
   const hits: Array<{ path: string; line: number; text: string }> = [];
   const word = new RegExp(`(?<![\\p{L}\\p{N}_$])${name.replace(/[$.*+?^()[\]{}|\\]/g, '\\$&')}(?![\\p{L}\\p{N}_$])`, 'u');
   let files = 0;
-  const walk = (dir: string) => {
-    let entries; try { entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)); } catch { return; }
-    for (const e of entries) {
-      if (files >= maxFiles) return;
-      const path = join(dir, e.name);
-      if (e.isDirectory()) { if (!e.name.startsWith('.') && !SKIPPED_DIRS.has(e.name)) walk(path); continue; }
-      if (!sources.test(e.name) || /\.d\.[mc]?ts$/i.test(e.name)) continue;
-      files++;
-      let text; try { text = readFileSync(path, 'utf8'); } catch { continue; }
-      if (!word.test(text)) continue;
-      text.split(/\r?\n/).forEach((l, i) => { if (word.test(l)) hits.push({ path, line: i + 1, text: l.trim() }); });
-    }
-  };
-  walk(root);
+  for (const path of filesUnder(root)) {
+    if (files >= maxFiles) break;
+    if (!sources.test(path) || /\.d\.[mc]?ts$/i.test(path)) continue;
+    files++;
+    let text; try { text = readFileSync(path, 'utf8'); } catch { continue; }
+    if (!word.test(text)) continue;
+    text.split(/\r?\n/).forEach((l, i) => { if (word.test(l)) hits.push({ path, line: i + 1, text: l.trim() }); });
+  }
   return hits;
 }
 

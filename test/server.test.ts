@@ -2,12 +2,12 @@
 // a TypeScript 5 project. Same-named symbols, strings and comments are the traps a text rename falls into.
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import extension from '../src/index.ts';
+import extension, { register } from '../src/index.ts';
 import { findOnPath, warmupFile } from '../src/servers.ts';
 import { Pool } from '../src/session.ts';
 import { references } from '../src/ops.ts';
@@ -25,10 +25,10 @@ function project(withTs5: boolean) {
   return dir;
 }
 
-function harness() {
+function harness(pool?: Pool) {
   const tools = new Map<string, any>(); const handlers = new Map<string, Function[]>();
   const pi: any = { registerTool: (t: any) => tools.set(t.name, t), on: (e: string, h: Function) => handlers.set(e, [...(handlers.get(e) ?? []), h]) };
-  extension(pi);
+  if (pool) register(pi, pool); else extension(pi);
   const lsp = tools.get('lsp');
   return {
     call: async (cwd: string, input: any) => (await lsp.execute('t', lsp.prepareArguments(input), undefined, undefined, { cwd })).content[0].text as string,
@@ -48,14 +48,27 @@ for (const [name, ts5] of [['TypeScript 7 native (bundled)', false], ['typescrip
     assert.match(refs, /3 reference\(s\)/);
     assert.match(refs, /src\/use\.ts:5:\d+ {2}export function both/);
     assert.doesNotMatch(refs, /invoice\.ts/);
+    assert.doesNotMatch(refs, /not tracked/);
 
     const def = await h.call(dir, { action: 'definition', path: 'src/use.ts', symbol: 'total', line: 6 });
     assert.match(def, /src\/cart\.ts:3:3/);
 
+    // Another program (git, a formatter, a generator) changes one file and creates another; no tool result
+    // tells us. The very next answer has both, and the rename reaches them.
+    appendFileSync(join(dir, 'src/use.ts'), 'export function thrice(c: Cart) { return c.total() * 3; }\n');
+    writeFileSync(join(dir, 'src/late.ts'), "import { Cart } from './cart';\nexport const late = new Cart().total();\n");
+    const seen = await h.call(dir, { action: 'references', path: 'src/cart.ts', symbol: 'total' });
+    assert.match(seen, /5 reference\(s\)/);
+    assert.match(seen, /src\/late\.ts:2:\d+ {2}export const late/);
+    assert.match(seen, /src\/use\.ts:7:\d+ {2}export function thrice/);
+
     const renamed = await h.call(dir, { action: 'rename', path: 'src/cart.ts', symbol: 'total', newName: 'subtotal' });
-    assert.match(renamed, /Renamed total → subtotal: 3 edit\(s\) in 2 file\(s\)/);
+    assert.match(renamed, /Renamed total → subtotal: 5 edit\(s\) in 3 file\(s\)/);
     assert.match(renamed, /still spelled total[^\n]*\nsrc\/invoice\.ts:2 .*\nsrc\/use\.ts:3 .*\nsrc\/use\.ts:4 .*\nsrc\/use\.ts:5 .*i\.total\(\)/);
+    assert.doesNotMatch(renamed, /src\/late\.ts:\d/, 'the file created by another program is renamed, not left over');
+    assert.match(readFileSync(join(dir, 'src/late.ts'), 'utf8'), /new Cart\(\)\.subtotal\(\)/);
     const use = readFileSync(join(dir, 'src/use.ts'), 'utf8');
+    assert.match(use, /c\.subtotal\(\) \* 3/);
     assert.match(use, /c\.subtotal\(\) \+ i\.total\(\)/);
     assert.match(use, /label = 'total'/);
     assert.match(use, /\/\/ total is the cart total/);
@@ -77,8 +90,39 @@ for (const [name, ts5] of [['TypeScript 7 native (bundled)', false], ['typescrip
 
     assert.match(await h.call(dir, { action: 'hover', path: 'src/cart.ts', symbol: 'subtotal' }), /subtotal\(\): number/);
     assert.match(await h.call(dir, { action: 'symbols', path: 'src/cart.ts', query: 'Invoice' }), /invoice\.ts:1 {2}class Invoice/);
+
+    // A file another program deleted is gone from the very next answer.
+    rmSync(join(dir, 'src/late.ts'));
+    const left = await h.call(dir, { action: 'references', path: 'src/cart.ts', symbol: 'subtotal' });
+    assert.doesNotMatch(left, /late\.ts/);
+    assert.match(left, /extra\.ts:2/);
   });
 }
+
+// The warm-up starts the server with the session, long before the first question: what other programs do in
+// between must reach the first answer.
+test('a file created after the server started and before the first question is in the first answer', { timeout: 120_000 }, async () => {
+  const dir = project(false); dirs.push(dir);
+  const pool = new Pool();
+  const warmed = harness(pool);
+  try {
+    await pool.prewarm(join(dir, 'src', 'cart.ts'));
+    writeFileSync(join(dir, 'src/late.ts'), "import { Cart } from './cart';\nexport const late = new Cart().total();\n");
+    const refs = await warmed.call(dir, { action: 'references', path: 'src/cart.ts', symbol: 'total' });
+    assert.match(refs, /4 reference\(s\)/);
+    assert.match(refs, /src\/late\.ts:2/);
+  } finally { await warmed.emit('session_shutdown', {}); }
+});
+
+test('a project with more source files than the limit says in every answer that outside changes are not tracked', { timeout: 120_000 }, async () => {
+  const dir = project(false); dirs.push(dir);
+  const small = harness(new Pool(60_000, 2));
+  try {
+    const hover = await small.call(dir, { action: 'hover', path: 'src/cart.ts', symbol: 'total' });
+    assert.match(hover, /This project has over 2 source files: changes made outside edit and write are not tracked\./);
+    assert.match(hover, /total\(\): number/);
+  } finally { await small.emit('session_shutdown', {}); }
+});
 
 test('C#: csharp-ls renames one class\'s method and leaves the same-named one alone', { timeout: 300_000, skip: findOnPath('csharp-ls') ? false : 'csharp-ls not installed' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'pi-lsp-cs-')); dirs.push(dir);

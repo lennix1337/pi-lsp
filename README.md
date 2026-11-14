@@ -24,9 +24,13 @@ name; it never counts columns.
 - **C#**: `csharp-ls` from the solution (`.sln`/`.slnx`) or project folder. Install it with
   `dotnet tool install -g csharp-ls`; without it, the tool says so.
 
-The TypeScript project of the session's folder is loaded when the session starts, so the first answer skips the ~2.5 s cold start. One server runs per project root and stops after 10 idle minutes or when the session ends. Files changed by
-`edit` and `write` are sent to the server before its next answer; files open in the server are compared with
-the disk on every call.
+The TypeScript project of the session's folder is loaded when the session starts, so the first answer skips the ~2.5 s cold start. One server runs per project root and stops after 10 idle minutes or when the session ends.
+
+Before each answer the server is told which source files were created, changed or deleted on disk since its
+last one, whoever did it: `edit` and `write`, but also git, a formatter, a generator or another session. The
+project's source files are compared with the disk on every call (dependency, build and hidden folders are
+skipped). A project with more than 5000 source files is not scanned: there only `edit` and `write` changes
+and the files open in the server are tracked, and every answer says so.
 
 ## Install
 
