@@ -1,4 +1,4 @@
-// Each guard, removed in a disposable copy, must make a test fail an assertion.
+
 import { mkdtempSync, cpSync, readFileSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';

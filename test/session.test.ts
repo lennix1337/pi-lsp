@@ -8,8 +8,8 @@ import { SOURCES, Session, changes, snapshot } from '../src/session.ts';
 
 interface Fake { root: string; session: Session; sent: Array<{ method: string; params: any }> }
 
-// A session over a process that never answers: flush() only needs somewhere to send its notifications.
-// `files` exist before the server starts; `limit` is the most source files the session tracks.
+
+
 async function fake(files: string[], body: (f: Fake) => void, limit?: number) {
   const root = mkdtempSync(join(tmpdir(), 'pi-lsp-session-'));
   for (const f of files) { mkdirSync(dirname(join(root, f)), { recursive: true }); writeFileSync(join(root, f), 'export const x = 1;\n'); }
@@ -22,8 +22,8 @@ async function fake(files: string[], body: (f: Fake) => void, limit?: number) {
   try {
     body({ root, session, sent });
   } finally {
-    // The folder is the child's working directory, which Windows keeps locked until the process is gone:
-    // removing it earlier fails with EPERM, and that error would replace an assertion that failed above.
+    // external: Windows holds a process working directory until the process exits.
+
     const child = (session.connection as any).child;
     const gone = new Promise(resolve => child.once('exit', resolve));
     child.kill();
@@ -33,12 +33,12 @@ async function fake(files: string[], body: (f: Fake) => void, limit?: number) {
 }
 
 const name = (uri: string) => basename(fileURLToPath(uri));
-// What the server was told, as "file:type" (1 created, 2 changed, 3 deleted), and which documents were opened or closed.
+
 const watched = (sent: Fake['sent']) => sent.filter(m => m.method === 'workspace/didChangeWatchedFiles').flatMap(m => m.params.changes.map((c: any) => `${name(c.uri)}:${c.type}`));
 const documents = (sent: Fake['sent'], method: string) => sent.filter(m => m.method === method).map(m => name(m.params.textDocument.uri));
 
-// A server that ignores watched-file events (typescript-language-server without dynamic registration) only
-// learns about a file another tool created if the client opens it; non-source files stay closed.
+// external: typescript-language-server can ignore watched-file events without dynamic registration.
+
 test('flush opens source files created by other tools and leaves other files closed', async () => {
   await fake([], ({ root, session, sent }) => {
     writeFileSync(join(root, 'extra.ts'), 'export const x = 1;\n');
@@ -54,8 +54,8 @@ test('flush opens source files created by other tools and leaves other files clo
   });
 });
 
-// git, a formatter or a generator leave no tool result. The server may be up long before the first question
-// (the warm-up starts it with the session), so what counts is the disk since the server started.
+
+
 test('a file another program created after the server started is announced before the first request', async () => {
   await fake(['a.ts'], ({ root, session, sent }) => {
     writeFileSync(join(root, 'late.ts'), 'export const late = 1;\n');

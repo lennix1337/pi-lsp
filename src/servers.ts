@@ -1,7 +1,7 @@
-// Which language server answers for a file, and from which project root. TypeScript and JavaScript use the
-// project's own compiler: TypeScript 7+ ships a native server (`tsc --lsp --stdio`); older versions go through
-// typescript-language-server with the project's tsserver. A file outside any project gets the bundled
-// TypeScript 7. C# uses csharp-ls from the solution or project folder.
+// external: TypeScript 7 ships a native language server; older versions use typescript-language-server.
+
+
+
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { delimiter, dirname, extname, join, parse } from 'node:path';
@@ -12,8 +12,8 @@ export interface ServerSpec { key: string; kind: 'typescript' | 'csharp'; root: 
 const TS_EXT = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs']);
 const require = createRequire(import.meta.url);
 
-// A file whose opening makes the TypeScript server load the project cwd belongs to, or null when cwd is not
-// itself a TypeScript/JavaScript project (a home folder with a package.json is not one).
+
+
 export function warmupFile(cwd: string): string | null {
   if (!['tsconfig.json', 'jsconfig.json'].some(n => existsSync(join(cwd, n)))) return null;
   for (const dir of [join(cwd, 'src'), cwd]) {
@@ -63,7 +63,7 @@ async function typescriptServer(file: string): Promise<ServerSpec> {
     const cli = join(dirname(require.resolve('typescript-language-server/package.json')), 'lib', 'cli.mjs');
     return {
       key: `tsls:${root}`, kind: 'typescript', root, command: process.execPath, args: [cli, '--stdio'],
-      // The syntax server answers project-wide requests from the open file alone until the project loads; never use it.
+      // external: The TypeScript syntax server answers project-wide requests from the open file until the project loads.
       initializationOptions: { tsserver: { path: join(local.dir, 'lib', 'tsserver.js'), useSyntaxServer: 'never' }, preferences: { includeCompletionsForModuleExports: false } },
       languageId: tsLanguageId, note: `TypeScript ${local.version} (project, tsserver)`,
     };

@@ -1,5 +1,5 @@
-// The lsp tool's actions: find a symbol's position by name, ask the server, and turn answers into short text
-// with paths and line text. Rename writes the server's edits to disk itself, all files or none.
+
+
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +13,7 @@ export class ToolError extends Error {}
 
 export interface Located { position: Position; line: number; occurrences: number; lines: number[] }
 
-// Whether column `at` of a line sits in a comment: after a `//` outside quotes, or on a block-comment line.
+
 function inComment(content: string, at: number): boolean {
   const head = content.trimStart();
   if (head.startsWith('/*') || head.startsWith('*')) return true;
@@ -27,8 +27,8 @@ function inComment(content: string, at: number): boolean {
   return false;
 }
 
-// The position of `symbol` in text: on `line` (1-based) when given, else its first occurrence as a whole word
-// in code (a comment mentioning the name gives the server nothing to rename).
+
+
 export function locate(text: string, symbol: string, line?: number, occurrence = 1): Located {
   if (!symbol) throw new ToolError('symbol is required: the name to look up, as written in the file.');
   const lines = text.split('\n');
@@ -96,15 +96,15 @@ export function formatDiagnostics(path: string, diagnostics: Diagnostic[], cwd: 
   const errors = diagnostics.filter(d => (d.severity ?? 1) === 1).length;
   const lines = sorted.slice(0, MAX_LISTED).map(d => `${name}:${d.range.start.line + 1}:${d.range.start.character + 1} ${SEVERITY[d.severity ?? 1] ?? 'error'}${d.code !== undefined ? ` ${typeof d.code === 'number' ? `TS${d.code}` : d.code}` : ''}: ${d.message.split('\n')[0]}`);
   if (sorted.length > MAX_LISTED) lines.push(`… ${sorted.length - MAX_LISTED} more`);
-  // C# without restored packages reports even System.Object as missing.
+  // external: C# reports even System.Object missing without restored packages.
   const unrestored = diagnostics.some(d => d.code === 'CS0518') ? '\nThe project has no restored packages (CS0518): run `dotnet restore`, then ask again.' : '';
   return `${name}: ${errors} error(s), ${diagnostics.length - errors} other.\n${lines.join('\n')}${unrestored}`;
 }
 
 interface TextEdit { range: Range; newText: string }
 
-// Text edits per file from a WorkspaceEdit. File creations, renames or deletions are refused: rename here
-// changes text only.
+// external: LSP workspace edits can contain file operations; rename accepts text changes only.
+
 export function textEdits(edit: any): Map<string, TextEdit[]> {
   const files = new Map<string, TextEdit[]>();
   const add = (uri: string, edits: TextEdit[]) => { const p = fileOf(uri); files.set(p, [...(files.get(p) ?? []), ...edits]); };
@@ -137,7 +137,7 @@ export function applyTextEdits(text: string, edits: TextEdit[]): string {
   return out;
 }
 
-// Compute every file first, then write: a bad edit in one file leaves all files untouched.
+// external: Compute all edits before writing to avoid partial changes after an invalid edit.
 export function applyWorkspaceEdit(files: Map<string, TextEdit[]>): Array<{ path: string; edits: number; lines: number[] }> {
   const planned = [...files].map(([path, edits]) => {
     const before = readFileSync(path, 'utf8');
@@ -154,12 +154,12 @@ export function formatRename(symbol: string, newName: string, applied: Array<{ p
 
 const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'build', 'out', 'bin', 'obj', 'coverage']);
 
-// The most source files of one project that a walk reads or a session tracks.
+
 export const MAX_SOURCE_FILES = 5000;
 
-// Every file under dir in name order, outside hidden, dependency and build folders.
+
 export function* filesUnder(dir: string): Generator<string> {
-  // A folder that cannot be listed (removed meanwhile, no permission) has no files to give.
+
   let entries; try { entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)); } catch { return; }
   for (const e of entries) {
     const path = join(dir, e.name);
@@ -168,8 +168,8 @@ export function* filesUnder(dir: string): Generator<string> {
   }
 }
 
-// Where the old name is still written after a rename (other symbols, comments, strings), so the agent need not
-// search for it again. Source files only, whole words, at most `maxFiles` files read.
+
+
 export function leftovers(root: string, name: string, sources: RegExp, maxFiles = MAX_SOURCE_FILES): Array<{ path: string; line: number; text: string }> {
   const hits: Array<{ path: string; line: number; text: string }> = [];
   const word = new RegExp(`(?<![\\p{L}\\p{N}_$])${name.replace(/[$.*+?^()[\]{}|\\]/g, '\\$&')}(?![\\p{L}\\p{N}_$])`, 'u');

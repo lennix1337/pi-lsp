@@ -25,14 +25,14 @@ const schema = Type.Object({
 const resolvePath = (path: string, cwd: string) => { const p = path.startsWith('@') ? path.slice(1) : path; return isAbsolute(p) ? p : resolve(cwd, p); };
 const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }], details: {} });
 
-// Hold every file's mutation queue for the whole rename, so no other edit interleaves.
+
 function withFiles<T>(paths: string[], fn: () => Promise<T>): Promise<T> {
   return [...paths].sort().reduceRight<() => Promise<T>>((inner, path) => () => withFileMutationQueue(path, inner), fn)();
 }
 
 export default function extension(pi: ExtensionAPI) { register(pi, new Pool()); }
 
-// The pool is a parameter so a test can run the tool with its own limits.
+
 export function register(pi: ExtensionAPI, pool: Pool) {
   pi.on('tool_result', (event: any, ctx: any) => {
     if ((event.toolName === 'edit' || event.toolName === 'write') && typeof event.input?.path === 'string' && !event.isError) {
