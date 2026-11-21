@@ -1,5 +1,5 @@
-// Against real language servers: the bundled TypeScript 7 native server, and typescript-language-server with
-// a TypeScript 5 project. Same-named symbols, strings and comments are the traps a text rename falls into.
+
+
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -53,8 +53,8 @@ for (const [name, ts5] of [['TypeScript 7 native (bundled)', false], ['typescrip
     const def = await h.call(dir, { action: 'definition', path: 'src/use.ts', symbol: 'total', line: 6 });
     assert.match(def, /src\/cart\.ts:3:3/);
 
-    // Another program (git, a formatter, a generator) changes one file and creates another; no tool result
-    // tells us. The very next answer has both, and the rename reaches them.
+
+
     appendFileSync(join(dir, 'src/use.ts'), 'export function thrice(c: Cart) { return c.total() * 3; }\n');
     writeFileSync(join(dir, 'src/late.ts'), "import { Cart } from './cart';\nexport const late = new Cart().total();\n");
     const seen = await h.call(dir, { action: 'references', path: 'src/cart.ts', symbol: 'total' });
@@ -75,14 +75,14 @@ for (const [name, ts5] of [['TypeScript 7 native (bundled)', false], ['typescrip
     assert.match(readFileSync(join(dir, 'src/invoice.ts'), 'utf8'), /total\(\): number/);
 
     assert.match(await h.call(dir, { action: 'diagnostics', path: 'src/use.ts' }), /no diagnostics/);
-    // Another tool breaks a file the server has not opened; diagnostics see the new text.
+
     writeFileSync(join(dir, 'src/use.ts'), use.replace('c.subtotal() * 2', 'c.total() * 2'));
     await h.emit('tool_result', { toolName: 'write', input: { path: join(dir, 'src/use.ts') }, isError: false });
     const diags = await h.call(dir, { action: 'diagnostics', path: 'src/use.ts' });
     assert.match(diags, /1 error\(s\)/);
     assert.match(diags, /use\.ts:6:\d+ error .*total/);
 
-    // A file changed on disk after the server read it: references follow the new text.
+
     writeFileSync(join(dir, 'src/extra.ts'), "import { Cart } from './cart';\nexport const x = new Cart().subtotal();\n");
     await h.emit('tool_result', { toolName: 'write', input: { path: 'src/extra.ts' }, isError: false }, dir);
     const after = await h.call(dir, { action: 'references', path: 'src/cart.ts', symbol: 'subtotal' });
@@ -91,7 +91,7 @@ for (const [name, ts5] of [['TypeScript 7 native (bundled)', false], ['typescrip
     assert.match(await h.call(dir, { action: 'hover', path: 'src/cart.ts', symbol: 'subtotal' }), /subtotal\(\): number/);
     assert.match(await h.call(dir, { action: 'symbols', path: 'src/cart.ts', query: 'Invoice' }), /invoice\.ts:1 {2}class Invoice/);
 
-    // A file another program deleted is gone from the very next answer.
+
     rmSync(join(dir, 'src/late.ts'));
     const left = await h.call(dir, { action: 'references', path: 'src/cart.ts', symbol: 'subtotal' });
     assert.doesNotMatch(left, /late\.ts/);
@@ -99,8 +99,8 @@ for (const [name, ts5] of [['TypeScript 7 native (bundled)', false], ['typescrip
   });
 }
 
-// The warm-up starts the server with the session, long before the first question: what other programs do in
-// between must reach the first answer.
+
+
 test('a file created after the server started and before the first question is in the first answer', { timeout: 120_000 }, async () => {
   const dir = project(false); dirs.push(dir);
   const pool = new Pool();

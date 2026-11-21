@@ -1,5 +1,5 @@
-// A language server over stdio: Content-Length framed JSON-RPC, requests with timeouts, and the few
-// server-to-client requests a server blocks on (configuration, capability registration, progress).
+
+
 import { type ChildProcess, spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +11,7 @@ export interface Location { uri: string; range: Range }
 
 export class LspError extends Error {}
 
-// Servers spell the same file differently (file:///c%3A/… vs file:///C:/…); diagnostics are keyed by this.
+// external: Servers may encode and capitalize Windows file URIs differently.
 export function uriKey(uri: string): string {
   let path: string;
   try { path = resolve(fileURLToPath(uri)); } catch { return uri; }
@@ -35,7 +35,8 @@ export class Connection {
     this.child.stderr!.on('data', (chunk: Buffer) => { if (this.stderr.length < 20_000) this.stderr += chunk.toString(); });
     this.child.on('error', e => this.fail(`could not start ${command}: ${e.message}`));
     this.child.on('exit', code => this.fail(`${command} exited (code ${code})${this.stderr ? `: ${this.stderr.trim().slice(-400)}` : ''}`));
-    this.child.stdin!.on('error', () => { /* reported by exit */ });
+    // external: Process exit reports stdin failures.
+    this.child.stdin!.on('error', () => {  });
   }
 
   private fail(reason: string) {
@@ -80,7 +81,7 @@ export class Connection {
     else call.resolve(message.result);
   }
 
-  // Requests the server makes of us. A null result is a valid answer to each; configuration wants one item per request.
+  // external: LSP configuration requests need one response per item.
   private answer(method: string, params: any): unknown {
     if (method === 'workspace/configuration') return (params?.items ?? []).map(() => null);
     return null;
@@ -104,8 +105,8 @@ export class Connection {
 
   notify(method: string, params: unknown) { this.send({ jsonrpc: '2.0', method, params }); }
 
-  // Diagnostics pushed for uri after a change. Servers push in stages (syntax, then semantic), so this waits
-  // until pushes stop for quietMs after the first one, or timeoutMs in all, and returns the last list.
+  // external: Language servers can push syntax and semantic diagnostics in stages.
+
   settledDiagnostics(uri: string, pushesBefore: number, timeoutMs: number, quietMs = 1_500): Promise<Diagnostic[]> {
     const key = uriKey(uri);
     return new Promise(done_ => {
@@ -120,11 +121,11 @@ export class Connection {
     });
   }
 
-  // Resolves once the process is gone: it holds its working folder open until then.
+  // external: A running server retains its working directory.
   async close() {
     if (this.exited) return;
     const gone = new Promise<void>(resolve => this.child.once('exit', () => resolve()));
-    try { await this.request('shutdown', null, 3_000); this.notify('exit', null); } catch { /* killed below */ }
+    try { await this.request('shutdown', null, 3_000); this.notify('exit', null); } catch {  }
     const kill = setTimeout(() => { if (!this.exited) this.child.kill(); }, 1_500);
     await gone;
     clearTimeout(kill);
